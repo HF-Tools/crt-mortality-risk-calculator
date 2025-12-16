@@ -1,0 +1,12 @@
+Copyright © 2025 Oliver Rees
+
+All rights reserved.
+
+This source code and associated materials are made publicly available for
+academic transparency and demonstration purposes only.
+
+No part of this code, logic, or implementation may be reproduced, modified,
+distributed, or used in derivative works without explicit written permission
+from the copyright holder.
+
+This tool is not validated for clinical use and is provided without warranty.

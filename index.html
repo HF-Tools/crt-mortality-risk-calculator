@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>CRT Mortality Risk Calculator</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 0 16px;
+      line-height: 1.5;
+    }
+    h1 {
+      font-size: 1.8rem;
+      margin-bottom: 0.2rem;
+    }
+    h2 {
+      font-size: 1.2rem;
+      margin-top: 1.5rem;
+    }
+    .card {
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 16px;
+      margin-top: 16px;
+    }
+    label {
+      display: block;
+      margin-top: 8px;
+      font-weight: 500;
+    }
+    input, select {
+      width: 100%;
+      padding: 6px 8px;
+      margin-top: 4px;
+      font-size: 0.95rem;
+      box-sizing: border-box;
+    }
+    button {
+      margin-top: 16px;
+      padding: 8px 14px;
+      font-size: 1rem;
+      border-radius: 6px;
+      border: 1px solid #666;
+      cursor: pointer;
+      background-color: #f5f5f5;
+    }
+    button:hover {
+      background-color: #e9e9e9;
+    }
+    .result-main {
+      font-size: 1.1rem;
+      font-weight: 600;
+      margin-top: 8px;
+    }
+    .risk-low   { color: #2e7d32; }
+    .risk-med   { color: #f57c00; }
+    .risk-high  { color: #c62828; }
+    .small {
+      font-size: 0.85rem;
+      color: #555;
+    }
+    table {
+      border-collapse: collapse;
+      margin-top: 8px;
+      font-size: 0.9rem;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 4px 8px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <h1>CRT Decision Support Tool for Hospitalised HF Patients</h1>
+  <p class="small">
+    Points-based risk score derived from a single centre cohort of 190 heart failure hospitalised patients who went on to have an inpatient or outpatient CRT. Higher scores indicate higher risk of 1-year mortality.
+  </p>
+
+  <div class="card">
+    <h2>Patient characteristics</h2>
+    <label>
+      Age at CRT (years):
+      <input type="number" id="age" min="18" max="100" value="75">
+    </label>
+
+    <label>
+      Sex:
+      <select id="sex">
+        <option value="Male" selected>Male</option>
+        <option value="Female">Female</option>
+      </select>
+    </label>
+
+    <label>
+      CRT implantation setting:
+      <select id="group">
+        <option value="Inpatient" selected>Inpatient</option>
+        <option value="Outpatient">Outpatient</option>
+      </select>
+    </label>
+
+    <label>
+      Device type:
+      <select id="device">
+        <option value="CRT-P" selected>CRT-P</option>
+        <option value="CRT-D">CRT-D</option>
+      </select>
+    </label>
+
+    <label>
+      Sinus rhythm on ECG:
+      <select id="sr">
+        <option value="Yes">Yes (sinus rhythm)</option>
+        <option value="No" selected>No (not in SR / AF)</option>
+      </select>
+    </label>
+
+    <label>
+      Severely reduced EF (≤35%):
+      <select id="efsev">
+        <option value="Yes" selected>Yes (EF ≤35%)</option>
+        <option value="No">No (EF &gt;35%)</option>
+      </select>
+    </label>
+
+    <button onclick="calculateRisk()">Calculate risk</button>
+  </div>
+
+  <div class="card">
+    <h2>Results</h2>
+    <div id="scoreText" class="result-main"></div>
+    <div id="riskText" class="result-main"></div>
+    <div id="riskGroupText" class="result-main"></div>
+    <p class="small" id="extraInfo"></p>
+  </div>
+
+  <div class="card">
+    <h2>Score → 1-year mortality lookup (model-derived)</h2>
+    <table id="lookupTable">
+      <thead>
+        <tr>
+          <th>Score</th>
+          <th>Mean predicted 1-year mortality</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <p class="small">
+      Mortality estimates are intended for research/illustrative use, not as a definitive clinical decision tool.
+    </p>
+  </div>
+
+  <script>
+    // Score → mortality lookup from your model
+    const scoreLookup = [
+      { score: 0, mort: 0.0243 },
+      { score: 1, mort: 0.0360 },
+      { score: 2, mort: 0.0431 },
+      { score: 3, mort: 0.0642 },
+      { score: 4, mort: 0.0885 },
+      { score: 5, mort: 0.1190 },
+      { score: 6, mort: 0.1720 },
+      { score: 7, mort: 0.2280 },
+      { score: 8, mort: 0.2860 },
+      { score: 9, mort: 0.3780 },
+      { score: 10, mort: 0.4660 },
+      { score: 11, mort: 0.5630 }
+    ];
+
+    // Populate lookup table
+    (function populateLookupTable() {
+      const tbody = document.querySelector("#lookupTable tbody");
+      scoreLookup.forEach(row => {
+        const tr = document.createElement("tr");
+        const tdScore = document.createElement("td");
+        const tdMort  = document.createElement("td");
+        tdScore.textContent = row.score;
+        tdMort.textContent  = (row.mort * 100).toFixed(1) + "%";
+        tr.appendChild(tdScore);
+        tr.appendChild(tdMort);
+        tbody.appendChild(tr);
+      });
+    })();
+
+    function computeCrtScore(age, sex, group, device, sr, efsev) {
+      // Age points: +1 per 10 years above 60, floored at 0
+      const agePoints = Math.max(0, Math.floor((age - 60) / 10));
+
+      // Sex: Male = +2, Female = 0
+      const sexPoints = (sex === "Male") ? 2 : 0;
+
+      // Group: Inpatient = +2, Outpatient = 0
+      const groupPoints = (group === "Inpatient") ? 2 : 0;
+
+      // Device: CRT-P = +2, CRT-D = 0
+      const devicePoints = (device === "CRT-P") ? 2 : 0;
+
+      // Rhythm: not in SR (sr = "No") = +1, SR = 0
+      const rhythmPoints = (sr === "Yes") ? 0 : 1;
+
+      // EF severity: EF>35% (efsev="No") = +1, EF≤35% (efsev="Yes") = 0
+      const efPoints = (efsev === "Yes") ? 0 : 1;
+
+      return agePoints + sexPoints + groupPoints + devicePoints + rhythmPoints + efPoints;
+    }
+
+    function getMortalityForScore(score) {
+      const row = scoreLookup.find(r => r.score === score);
+      if (!row) return null;
+      return row.mort;
+    }
+
+    function riskCategory(score) {
+      if (score <= 4) {
+        return {
+          text: "Low risk (score 0–4, ≈2–9% 1-year mortality)",
+          css: "risk-low"
+        };
+      } else if (score >= 5 && score <= 7) {
+        return {
+          text: "Intermediate risk (score 5–7, ≈12–23% 1-year mortality)",
+          css: "risk-med"
+        };
+      } else {
+        return {
+          text: "High risk (score 8–11, ≈28–56% 1-year mortality)",
+          css: "risk-high"
+        };
+      }
+    }
+
+    function calculateRisk() {
+      const age   = parseInt(document.getElementById("age").value, 10);
+      const sex   = document.getElementById("sex").value;
+      const group = document.getElementById("group").value;
+      const device = document.getElementById("device").value;
+      const sr    = document.getElementById("sr").value;
+      const efsev = document.getElementById("efsev").value;
+
+      if (isNaN(age)) {
+        alert("Please enter a valid age.");
+        return;
+      }
+
+      const score = computeCrtScore(age, sex, group, device, sr, efsev);
+      const mort  = getMortalityForScore(score);
+      const cat   = riskCategory(score);
+
+      const scoreEl = document.getElementById("scoreText");
+      const riskEl  = document.getElementById("riskText");
+      const catEl   = document.getElementById("riskGroupText");
+      const extraEl = document.getElementById("extraInfo");
+
+      scoreEl.textContent = "CRT risk score: " + score + " points";
+
+      if (mort === null) {
+        riskEl.textContent = "Predicted 1-year mortality: outside model range";
+      } else {
+        riskEl.textContent = "Predicted 1-year mortality: " + (mort * 100).toFixed(1) + "%";
+      }
+
+      // Clear old classes
+      catEl.classList.remove("risk-low", "risk-med", "risk-high");
+      catEl.textContent = "Risk category: " + cat.text;
+      catEl.classList.add(cat.css);
+
+      extraEl.textContent = "This tool is based on a single-centre cohort (n=190) and should be interpreted alongside clinical judgement, not as a stand-alone decision rule.";
+    }
+
+    // Calculate once on load with defaults
+    calculateRisk();
+  </script>
+</body>
+</html>
